@@ -1,57 +1,55 @@
-# gptray
+# GPTray 0.2
 
-Instant, global-hotkey access to [ChatGPT](https://chatgpt.com) from anywhere on Windows — lives quietly in the system tray, opens as a small dropdown panel, and stays out of your way the rest of the time.
+A lightweight Windows tray client for the real [ChatGPT website](https://chatgpt.com), using Tauri v2 / Rust / WebView2. Your account, Plus entitlement, history and memory come from the website; there is no separate AI service or API chatbot.
 
-Inspired by [ik190/macos-chatgpt-overlay-bar](https://github.com/ik190/macos-chatgpt-overlay-bar), the macOS menu-bar equivalent of this idea.
+## Use
 
-## Why
+- `Ctrl+Shift+Space`, tray left-click, or **Toggle Quick Panel** opens/hides the quick panel: 400 × 600 logical pixels, topmost, no taskbar entry, hides on focus loss.
+- Tray → **Open Full Window**: standard titlebar, taskbar entry, resizing, maximize/minimize. Focus loss leaves it open. Default content size 1100 × 750; normal bounds and maximized state are saved. Native close hides to tray; **Quit** exits.
+- Tray → **Return to Quick Panel** or the hotkey changes the same window back to the panel. Mode switching does not navigate or recreate ChatGPT.
+- **Launch at Login** is optional and managed through the existing Windows startup registration.
+- **Free RAM — discards page state** → **Discard page state and Free RAM now** destroys the WebView. **This stops replies and loses unsent text.** Next open reloads ChatGPT; profile data is retained.
+- **Auto-discard after 2 min hidden (this run)** is optional, explicitly destructive and **off at every startup**. Only use it when losing a hidden draft or stopping a hidden reply is acceptable. Visible windows, including minimized full windows, are excluded. Reopening cancels the timer. Default hiding never automatically discards a page.
 
-Alt-tabbing to a browser tab (or opening a whole new one) every time you want to ask ChatGPT something is friction. `gptray` sits in the tray, does nothing until you summon it, and gets out of the way the instant you're done — without the RAM cost of running Electron or keeping a browser tab pinned all day.
+One ChatGPT WebView is created on first use; none is created at startup. Hidden by default means warm, fast reopen. Destroying the WebView can release resources, but actual WebView2 process lifetime and RAM savings must be measured on Windows. No performance percentage is promised.
 
-## Features
+## Test installation and rollback
 
-- **Global hotkey** — `Ctrl+Shift+Space` toggles the panel open/closed from any app, any time.
-- **Tray-only presence** — no taskbar entry, no window flash on launch, just an icon in the system tray.
-- **Dropdown panel** — borderless, always-on-top, appears bottom-right above the taskbar, dismisses when you click away.
-- **Persistent login** — log in to ChatGPT once; the session survives app restarts and reboots.
-- **Low idle footprint** — the ChatGPT page isn't loaded until you open the panel for the first time, so the app sits at ~12-27MB RAM until you actually use it.
-- **Launch at login** — optional, off by default, toggle it from the tray menu.
-
-## Install
-
-Grab the installer from [Releases](../../releases) and run it — per-user install, no admin rights needed.
-
-> The installer is unsigned, so Windows SmartScreen will warn once on first run. Click "More info" → "Run anyway."
-
-## Usage
-
-- Press `Ctrl+Shift+Space` to open or close the panel.
-- Left-click the tray icon to toggle it directly.
-- Right-click the tray icon for the menu: **Toggle**, **Launch at Login**, **Quit**.
-
-## Building from source
-
-**Prerequisites:**
-- [Node.js](https://nodejs.org) (v18+)
-- [Rust](https://www.rust-lang.org/tools/install) (`rustup default stable-msvc`)
-- MSVC C++ Build Tools ([Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022), "Desktop development with C++" workload)
-- Windows 11 or Windows 10 with the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) installed (present by default on most modern Windows installs)
-
-**Build:**
+Use the completed Windows Actions run linked from the Draft PR. Download artifact **gptray-0.2-windows-x64-unsigned-test** (available for seven days); unzip the installer and `SHA256SUMS.txt` together. A GitHub login may be required. Before running:
 
 ```powershell
-npm install
-npm run tauri build
+Get-FileHash .\chatgpt-overlay-bar_0.2.0_x64-setup.exe -Algorithm SHA256
+Get-Content .\SHA256SUMS.txt
 ```
 
-Output:
-- Executable: `src-tauri/target/release/chatgpt-overlay-bar.exe`
-- Installer: `src-tauri/target/release/bundle/nsis/chatgpt-overlay-bar_0.1.0_x64-setup.exe`
+Compare the entire hash and confirm the run's source commit. The installer is unsigned: only proceed if the source and checksum are trusted; signing/SmartScreen reputation is not established by a successful build. Quit the old GPTray, then run the per-user NSIS installer. Keep the same app identifier and do not delete `%LOCALAPPDATA%\com.globalvox.chatgpt-overlay-bar` when comparing versions.
 
-For development, `npm run tauri dev` runs it without bundling.
+Keep a copy of the previous 0.1 installer plus hash before upgrading. PR [#1](https://github.com/saampe/gptray/pull/1), branch `ci/windows-build-test`, commit `f2c5903e2c1d4bfcb5505e41b39adcc1a8267159` remain the old source baseline. For rollback, Quit 0.2, uninstall it **without deleting user data**, and install the saved 0.1 build (the installer may reject an in-place downgrade). Rebuild the old commit if its short-lived artifact has expired. Profile compatibility across WebView2 runtime changes is not guaranteed; back up the profile with GPTray closed before testing. Do not run both versions concurrently.
 
-## Tech stack
+## Verification
 
-Built with [Tauri v2](https://v2.tauri.app/) — a Rust host process rendering through Windows' built-in WebView2 (Edge/Chromium) runtime — instead of Electron, specifically to avoid bundling a second full browser+Node.js runtime and keep idle memory usage low.
+See [Windows acceptance and RAM measurement](docs/WINDOWS-VALIDATION.md) and [architecture / security](ARCHITECTURE.md). A passing CI build verifies compilation, automated policy tests and packaging, **not** live Windows focus, login, draft preservation or measured RAM use.
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for how it's put together.
+The earlier observations (~139.9 MB open, ~125 MB hidden) include WebView2 processes identified at the time, but are not validated process-group baselines. Measure both versions with the same script and conditions before comparing. Earlier README claims of 12–27 MB or other fixed memory costs are not acceptance evidence for this version.
+
+## Build
+
+Windows 10/11 x64, WebView2 Runtime, Node.js 22, stable Rust MSVC and Visual Studio C++ Build Tools are required.
+
+```powershell
+npm ci
+cargo test --locked --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+```
+
+Installer output: `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/`.
+
+Pure logic tests can also run on Linux without a GUI or Tauri system libraries:
+
+```sh
+mkdir -p work
+rustc --edition=2021 --test src-tauri/src/policy_tests.rs -o work/policy-tests
+./work/policy-tests
+```
+
+Inspired by [ik190/macos-chatgpt-overlay-bar](https://github.com/ik190/macos-chatgpt-overlay-bar).
