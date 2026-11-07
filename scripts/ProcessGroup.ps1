@@ -7,9 +7,9 @@ function Get-GPTrayProcessGroup {
         $identity = '{0}:{1}' -f $id, ([datetime]$process.CreationDate).ToUniversalTime().Ticks
         $profileMatches = $false
         if ($ProfileDirectory -and $process.Name -ieq 'msedgewebview2.exe') {
-            $match = [regex]::Match([string]$process.CommandLine, '(?i)(?:^|\s)--user-data-dir=(?:"([^"]+)"|([^\s]+))')
+            $match = [regex]::Match([string]$process.CommandLine, '(?i)(?:^|\s)(?:"--user-data-dir=([^"]+)"|--user-data-dir="([^"]+)"|--user-data-dir=([^\s]+))')
             if ($match.Success) {
-                $path = ($match.Groups[1].Value + $match.Groups[2].Value).TrimEnd('\')
+                $path = ($match.Groups[1].Value + $match.Groups[2].Value + $match.Groups[3].Value).TrimEnd('\')
                 $expected = $ProfileDirectory.TrimEnd('\')
                 $profileMatches = $path -ieq $expected -or $path -ieq "$expected\EBWebView"
             }
@@ -56,4 +56,18 @@ function Test-GPTrayRootPresent {
             $Known.ContainsKey('RootIdentity') -and $Known['RootIdentity'] -eq $identity) { return $true }
     }
     return $false
+}
+function Get-GPTrayProcessRole {
+    param([string]$Name, [string]$CommandLine)
+    if ($Name -ieq 'chatgpt-overlay-bar.exe') { return 'Host' }
+    if ($Name -ine 'msedgewebview2.exe') { return 'Other' }
+    $type = [regex]::Match($CommandLine, '(?i)(?:^|\s)--type=(?:"([^\"]+)"|([^\s]+))')
+    $value = $type.Groups[1].Value + $type.Groups[2].Value
+    switch ($value) {
+        'renderer' { return 'Renderer' }
+        'gpu-process' { return 'GPU' }
+        'utility' { return 'Utility' }
+        '' { return 'Browser' }
+        default { return 'OtherHelper' }
+    }
 }

@@ -15,11 +15,24 @@ pub struct Lifecycle {
     pub mode: Mode,
     pub transitioning: bool,
     pub releasing: bool,
+    pending_show: Option<Mode>,
     auto_free: bool,
     hidden_since: Option<u64>,
     epoch: u64,
 }
 impl Lifecycle {
+    pub fn request_open(&mut self, mode: Mode) -> bool {
+        if self.releasing {
+            self.pending_show = Some(mode);
+            false
+        } else {
+            true
+        }
+    }
+    pub fn finish_release(&mut self) -> Option<Mode> {
+        self.releasing = false;
+        self.pending_show.take()
+    }
     pub fn show(&mut self, mode: Mode) {
         self.mode = mode;
         self.hidden_since = None;
@@ -174,5 +187,17 @@ mod tests {
         assert!(!s.may_capture_bounds(false));
         s.transitioning = true;
         assert!(!s.may_capture_bounds(true));
+    }
+    #[test]
+    fn both_hotkey_modes_wait_for_release_and_latest_request_wins() {
+        let mut s = Lifecycle {
+            releasing: true,
+            ..Lifecycle::default()
+        };
+        assert!(!s.request_open(Mode::Quick));
+        assert!(!s.request_open(Mode::Full));
+        assert_eq!(s.finish_release(), Some(Mode::Full));
+        assert!(s.request_open(Mode::Full));
+        assert_eq!(s.finish_release(), None);
     }
 }
