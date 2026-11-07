@@ -35,6 +35,9 @@ impl Lifecycle {
     pub fn blur_hides(&self) -> bool {
         self.mode == Mode::Quick && !self.transitioning && !self.releasing
     }
+    pub fn may_capture_bounds(&self, preexisting_window: bool) -> bool {
+        preexisting_window && self.mode == Mode::Full && !self.transitioning && !self.releasing
+    }
     pub fn blur_should_hide(&self, native_foreground: Option<bool>) -> bool {
         self.blur_hides() && native_foreground == Some(false)
     }
@@ -162,5 +165,14 @@ mod tests {
         assert!(s.toggle_should_hide(true));
         s.releasing = true;
         assert!(!s.toggle_should_hide(true));
+    }
+    #[test]
+    fn recreated_webview_cannot_overwrite_saved_full_window_bounds() {
+        let mut s = Lifecycle::default();
+        s.show(Mode::Full);
+        assert!(s.may_capture_bounds(true));
+        assert!(!s.may_capture_bounds(false));
+        s.transitioning = true;
+        assert!(!s.may_capture_bounds(true));
     }
 }

@@ -118,11 +118,7 @@ fn save_bounds(app: &AppHandle) {
 fn capture_bounds(app: &AppHandle, window: &WebviewWindow) {
     let controller = app.state::<Controller>();
     let mut state = controller.inner.lock().unwrap();
-    if state.policy.mode != Mode::Full
-        || state.policy.transitioning
-        || state.policy.releasing
-        || window.is_minimized().unwrap_or(true)
-    {
+    if !state.policy.may_capture_bounds(true) || window.is_minimized().unwrap_or(true) {
         return;
     }
     let Ok(maximized) = window.is_maximized() else {
@@ -323,8 +319,20 @@ fn open(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
             return Ok(());
         }
     }
-    let window = get_or_create_panel(app)?;
-    capture_bounds(app, &window);
+    // Capture only a pre-existing window. A newly constructed WebView still has
+    // Quick's initial 400x600 bounds, even when reopening after freeing Full.
+    if let Some(window) = app.get_webview_window(PANEL_LABEL) {
+        let capture = app
+            .state::<Controller>()
+            .inner
+            .lock()
+            .unwrap()
+            .policy
+            .may_capture_bounds(true);
+        if capture {
+            capture_bounds(app, &window);
+        }
+    }
     let (old_mode, bounds) = {
         let controller = app.state::<Controller>();
         let mut state = controller.inner.lock().unwrap();
@@ -334,6 +342,16 @@ fn open(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
         (old, state.bounds)
     };
     sync_timer(app);
+    let window = match get_or_create_panel(app) {
+        Ok(window) => window,
+        Err(error) => {
+            let controller = app.state::<Controller>();
+            let mut state = controller.inner.lock().unwrap();
+            state.policy.mode = old_mode;
+            state.policy.transitioning = false;
+            return Err(error);
+        }
+    };
     let result = native_mode(&window, mode, bounds).and_then(|_| {
         window.show()?;
         window.set_focus()

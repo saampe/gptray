@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-build-${{ github.ref }}
+  group: windows-build-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
