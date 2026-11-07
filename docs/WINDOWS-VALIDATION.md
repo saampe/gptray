@@ -4,7 +4,7 @@
 
 Automated policy tests cover mode-dependent blur decisions, safe defaults, deadlines and stale cancellation, repeated mode transitions, geometry serialization/validation, removed monitors and DPI fitting. Windows CI additionally runs the Rust application test suite, formats, compiles/packages with MSVC, tests PowerShell grouping fixtures and uploads an NSIS installer/hash. These are not interactive GUI tests.
 
-The development environment is Linux. No Windows desktop or user credentials are available here. Until completed on Windows, mark every item below **not manually verified**. Do not fill measurement cells from guesses or earlier README claims.
+The development environment is Linux. A Windows Actions native probe is additionally attempted using local test HTML and a disposable profile; its result artifact is distinct from user-session verification. No interactive Windows 11 desktop or user credentials are available in development. Until completed on Windows, mark every item below **not manually verified**. Do not fill measurement cells from guesses or earlier README claims.
 
 ## Acceptance checklist (Windows 11 reference: i3-8130U, 4 GB RAM, UHD 620)
 
@@ -12,10 +12,10 @@ Record Windows build, WebView2 version (`msedgewebview2.exe` Details), GPTray co
 
 1. Start/quit five times before ever opening: tray available, no window/taskbar flash and no GPTray-associated WebView2 instance before first open. Quit removes the host; observe child processes for at least 30 seconds.
 2. Hotkey, tray left-click and Toggle Quick Panel: open and hide a ~400 × 600 logical-pixel topmost panel; click another app to hide it; no taskbar entry. Check tray-click close behavior separately (blur and mouse event ordering can differ).
-3. Open Full Window: native titlebar/system controls, taskbar/Alt-Tab entry, resize/minimize/maximize. Clicking another app must not hide Full. Native close hides to tray; Quit exits. Opening a minimized Full restores it.
-4. Enter distinctive **unsent** text; switch Quick ↔ Full at least 20 times and verify text, page URL, scroll and active response are retained without a reload. While a harmless response generates, switch and hide/reopen in default mode; verify no intentional interruption. Inspect process tree for one application-created WebView, not two page instances (Chromium helper processes are expected).
+3. Press Ctrl+Shift+Enter from hidden, Quick, already Full/minimized, and during Free RAM recreation. Verify Full restores/focuses without unnecessary unmaximize/resize. Reserve either hotkey in another app and verify GPTray still starts, reports the conflict in tray, and the other shortcut works. Open Full Window: native titlebar/system controls, taskbar/Alt-Tab entry, resize/minimize/maximize. Clicking another app must not hide Full. Native close hides to tray; Quit exits. Opening a minimized Full restores it.
+4. Cold-open Full and reopen Full after Free RAM: verify no 400×600 intermediate layout, including 100/150/200% DPI and maximized restore. Initial website loading can still take time; record any residual frame/paint delay separately from native viewport size. Enter distinctive **unsent** text; switch Quick ↔ Full at least 20 times and verify text, page URL, scroll and active response are retained without a reload. While a harmless response generates, switch and hide/reopen in default mode; verify no intentional interruption. Inspect process tree for one application-created WebView, not two page instances (Chromium helper processes are expected).
 5. Move/resize Full, maximize, return Quick, return Full. Quit/restart and verify normal restore bounds plus maximized state. Repeat unmaximized, minimized then Quit, secondary monitor at negative coordinates, 100/150/200% DPI, and unplugged monitor. Titlebar must remain reachable. Corrupt `window-bounds-v1.txt` with GPTray closed; defaults must recover.
-6. Default auto-discard is unchecked. Hide for >2 minutes with unsent text: reopen must retain it. Repeat with a response. A visible, unfocused Full and a minimized Full must never unload, even when the risky auto option is enabled.
+6. With a sufficiently new Runtime, inactive/hidden/minimized requests Low; foreground/restored requests Normal. Check drafts and a harmless streaming response continue through default hidden mode and wake correctly. Native target acceptance is best effort and cannot prove a RAM saving. Default auto-discard is unchecked. Hide for >2 minutes with unsent text: reopen must retain it. Repeat with a response. A visible, unfocused Full and a minimized Full must never unload, even when the risky auto option is enabled.
 7. Use a disposable unsent draft for manual Free RAM: confirm the menu warns, choose discard, host/tray stays running, WebView disappears, next hotkey reloads it. Repeat Free RAM from a resized/maximized Full and confirm its saved normal geometry survives reopening Full. Repeat 20 times and rapidly press hotkey while releasing; no label-conflict failures or extra windows. Child processes may exit asynchronously; record their lifetimes, do not assume immediate freeing.
 8. Explicitly opt into auto-discard using disposable state. Hide 110 seconds → reopen → hide: it must not unload until 120 seconds after the second hide. Reopen around the deadline; stale queued callbacks must not destroy a visible page. Disable around deadline and ensure no later discard. Restart and confirm option is unchecked again. This mode intentionally can lose hidden drafts/stop hidden replies.
 9. Login via `https://chatgpt.com`: test the actual login method, including provider redirects/popups. Verify cookies after hide, Free RAM, Quit/restart and Windows restart. Check account/Plus, history and personalization through the website. **Do not send credentials or profile files for this test.** Popups are blocked; record login failures as compatibility issues.
@@ -54,14 +54,31 @@ Use the same output directory across invocations (timestamped CSV avoids overwri
 
 For each version, start a fresh GPTray process. Record timings relative to each action: capture 30 one-second samples after a 30-second settling period; separately capture transition latency if desired. For hidden-idle default tests, add a >120-second capture. Test logged-out and logged-in conditions separately. Keep network, page/conversation, DPI, runtime version, power mode and background workload consistent. Run at least three comparable repetitions; do not combine first-load warmup with steady state.
 
-| Scenario | 0.1 measured MiB | 0.2 measured MiB | Processes / conditions |
+| Scenario | 0.2 measured MiB | 0.3 measured MiB | Processes / conditions |
 |---|---|---|---|
 | Started, never opened | Pending | Pending | Fresh host |
 | Quick open, settled | Pending | Pending | Same page/auth state |
 | Quick hidden, warm | Pending | Pending | Record seconds hidden |
-| After manual discard | N/A | Pending | Also record surviving helpers and reload delay |
-| Full open | N/A | Pending | Same page/content |
-| After 20 mode switches | N/A | Pending | Check process count/trend, then 30 settled samples |
-| After 20 discard/reopen cycles, then Quit | N/A | Pending | Include 30s post-Quit observation |
+| After manual discard | Pending | Pending | Also record surviving helpers and reload delay |
+| Full open | Pending | Pending | Same page/content |
+| After 20 mode switches | Pending | Pending | Check process count/trend, then 30 settled samples |
+| After 20 discard/reopen cycles, then Quit | Pending | Pending | Include 30s post-Quit observation |
 
-Earlier ~139.9 MB open / ~125 MB hidden observations used incompletely validated grouping and an unspecified memory column. Retain as historical observations, not directly comparable benchmarks. Report observed tradeoffs (warm RAM vs reopen latency; discarded draft vs smaller footprint), with no invented improvement target.
+The reported ~450–470 MB active peaks are also uncontrolled and are not comparison evidence. Earlier ~139.9 MB open / ~125 MB hidden observations used incompletely validated grouping and an unspecified memory column. Retain as historical observations, not directly comparable benchmarks. Report observed tradeoffs (warm RAM vs reopen latency; discarded draft vs smaller footprint), with no invented improvement target.
+
+
+## GPTray 0.3 single-session benchmark
+
+Use the **0.3 tools against both executables**, starting a fresh host without opening it each run. Keep only one host and the same profile, account/page, DPI, power mode, network, WebView2 version and background workload. The tools never read page text, inject page scripts, clear data or enter credentials. Prefer disposable draft state before Free RAM; the app warns because discard can lose it.
+
+```powershell
+.\scripts\Invoke-GPTrayBenchmark.ps1 -VersionLabel 0.2 -AuthState LoggedOut
+# Quit 0.2, install/start 0.3, then repeat under equivalent conditions:
+.\scripts\Invoke-GPTrayBenchmark.ps1 -VersionLabel 0.3 -AuthState LoggedOut
+```
+
+The command guides seven phases with one confirmation each: never-opened tray, opening transition, open idle, hidden-preserved, reopened, Free RAM, then repeated cycles. It detects the sole host, records binary SHA/version, Windows build, CPU/RAM, optional display scale, auth-state label and available runtime-version metadata. It does not automate conversation questions or account actions. The initial transition capture begins **before** opening: use raw timestamps/process appearance to distinguish pre-open, load peak and settled samples; its mean is not an active-memory baseline. Full is used for console-guided open captures because Quick hides on blur. Refocus Full during the stated countdown so an inactive Low capture is not confused with active Normal. A separate 30-second settling period is still recommended for steady-state comparisons.
+
+Per-process CSV includes Host/Browser/Renderer/GPU/Utility/Other roles without exporting command lines. Group attribution remains root descendants, stable PID+creation identity and exact profile match, including whole-quoted user-data-dir arguments. Summaries exclude incomplete samples, separate version/scenario and separately report private working set, private commit, total working set and process count. `metadata.json`, raw CSV and `summary.csv` live under timestamped run directories. Capture multiple comparable repetitions and inspect per-role trends after repeated questions/conversation switches manually, without exporting the conversations.
+
+No 0.2/0.3 ChatGPT memory measurements have been fabricated. The table stays Pending until real matched Windows runs exist. Native smoke target readback and viewport assertions are not ChatGPT RAM measurements or a claim that streaming/login behavior is verified.

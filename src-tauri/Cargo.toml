@@ -1,6 +1,6 @@
 [package]
 name = "chatgpt-overlay-bar"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lightweight ChatGPT tray and window client"
 authors = ["you"]
 edition = "2021"
@@ -22,3 +22,7 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-autostart = "2.5.1"
 
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "=0.38.2"
+windows = { version = "=0.61.3", features = ["Win32_Foundation"] }

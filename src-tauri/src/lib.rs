@@ -1,8 +1,15 @@
 mod geometry;
 mod lifecycle;
+mod memory;
+mod native_window;
+mod shortcuts;
+#[cfg(windows)]
+mod webview_memory;
+mod window_mode;
 
-use geometry::{Bounds, WorkArea};
+use geometry::Bounds;
 use lifecycle::{Deadline, Lifecycle, Mode};
+use memory::{Memory, Outcome, Target};
 use std::{
     path::PathBuf,
     sync::{mpsc, Mutex},
@@ -14,10 +21,8 @@ use tauri::{
         CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
     },
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    webview::NewWindowResponse,
-    window::Color,
     AppHandle, LogicalSize, Manager, PhysicalPosition, RunEvent, Url, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -29,7 +34,7 @@ const CHATGPT_URL: &str = "https://chatgpt.com";
 struct Inner {
     policy: Lifecycle,
     bounds: Bounds,
-    pending_show: Option<Mode>,
+    memory: Memory,
     timer: Option<mpsc::Sender<TimerMessage>>,
 }
 struct Controller {
@@ -100,6 +105,74 @@ fn sync_timer(app: &AppHandle) {
         let _ = tx.send(TimerMessage::Update(state.policy.deadline()));
     }
 }
+fn sync_memory(app: &AppHandle, window: &WebviewWindow) {
+    let policy_ready = {
+        let controller = app.state::<Controller>();
+        let state = controller.inner.lock().unwrap();
+        !state.policy.releasing && !state.policy.transitioning
+    };
+    if !policy_ready {
+        return;
+    }
+    if let (Ok(visible), Ok(minimized)) = (window.is_visible(), window.is_minimized()) {
+        request_memory(
+            app,
+            window,
+            memory::target_for(visible, minimized, native_foreground(window)),
+        );
+    }
+}
+fn request_memory(app: &AppHandle, window: &WebviewWindow, target: Target) {
+    let request = app
+        .state::<Controller>()
+        .inner
+        .lock()
+        .unwrap()
+        .memory
+        .request(target);
+    let Some(request) = request else {
+        return;
+    };
+    let handle = app.clone();
+    let dispatched = window.with_webview(move |view| {
+        let current = handle
+            .state::<Controller>()
+            .inner
+            .lock()
+            .unwrap()
+            .memory
+            .is_current(request);
+        if !current {
+            return;
+        }
+        #[cfg(windows)]
+        let outcome = webview_memory::apply(&view, request.target);
+        #[cfg(not(windows))]
+        let outcome = {
+            let _ = view;
+            Outcome::Unsupported
+        };
+        let recorded = handle
+            .state::<Controller>()
+            .inner
+            .lock()
+            .unwrap()
+            .memory
+            .finish(request, outcome);
+        if recorded && outcome != Outcome::Applied {
+            // Only capability/HRESULT metadata, never URLs, cookies or page data.
+            eprintln!("GPTray memory hint: {outcome:?}");
+        }
+    });
+    if dispatched.is_err() {
+        app.state::<Controller>()
+            .inner
+            .lock()
+            .unwrap()
+            .memory
+            .finish(request, Outcome::Failed(-1));
+    }
+}
 fn save_bounds(app: &AppHandle) {
     let controller = app.state::<Controller>();
     let bounds = controller.inner.lock().unwrap().bounds;
@@ -148,6 +221,7 @@ fn capture_bounds(app: &AppHandle, window: &WebviewWindow) {
 fn hide(app: &AppHandle, window: &WebviewWindow) -> tauri::Result<()> {
     capture_bounds(app, window);
     window.hide()?;
+    request_memory(app, window, Target::Low);
     app.state::<Controller>()
         .inner
         .lock()
@@ -157,27 +231,6 @@ fn hide(app: &AppHandle, window: &WebviewWindow) -> tauri::Result<()> {
     save_bounds(app);
     sync_timer(app);
     Ok(())
-}
-fn fit_bounds(window: &WebviewWindow, bounds: Bounds) -> Bounds {
-    let areas = window
-        .available_monitors()
-        .unwrap_or_default()
-        .iter()
-        .map(|m| {
-            let a = m.work_area();
-            WorkArea {
-                x: a.position.x,
-                y: a.position.y,
-                width: a.size.width.saturating_sub((16. * m.scale_factor()) as u32),
-                height: a
-                    .size
-                    .height
-                    .saturating_sub((48. * m.scale_factor()) as u32),
-                scale: m.scale_factor(),
-            }
-        })
-        .collect::<Vec<_>>();
-    bounds.fit(&areas)
 }
 fn native_mode(window: &WebviewWindow, mode: Mode, bounds: Bounds) -> tauri::Result<()> {
     let full = mode == Mode::Full;
@@ -190,7 +243,7 @@ fn native_mode(window: &WebviewWindow, mode: Mode, bounds: Bounds) -> tauri::Res
     window.set_maximizable(full)?;
     window.set_minimizable(full)?;
     if full {
-        let bounds = fit_bounds(window, bounds);
+        let bounds = native_window::fitted(window.app_handle(), bounds);
         window.set_size(LogicalSize::new(bounds.width, bounds.height))?;
         window.set_position(PhysicalPosition::new(bounds.x, bounds.y))?;
         if bounds.maximized {
@@ -240,31 +293,27 @@ fn native_foreground(window: &WebviewWindow) -> Option<bool> {
     window.is_focused().ok()
 }
 
-fn get_or_create_panel(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+fn get_or_create_panel(
+    app: &AppHandle,
+    mode: Mode,
+    bounds: Bounds,
+) -> tauri::Result<WebviewWindow> {
     if let Some(window) = app.get_webview_window(PANEL_LABEL) {
         return Ok(window);
     }
-    // This is Tauri's existing default directory. Keep the identifier and profile unchanged.
-    let profile = app.path().app_local_data_dir()?;
-    let window = WebviewWindowBuilder::new(
+    app.state::<Controller>()
+        .inner
+        .lock()
+        .unwrap()
+        .memory
+        .new_page();
+    let window = native_window::build(
         app,
-        PANEL_LABEL,
+        mode,
+        bounds,
+        app.path().app_local_data_dir()?,
         WebviewUrl::External(Url::parse(CHATGPT_URL).expect("constant HTTPS URL")),
-    )
-    .title("GPTray — ChatGPT")
-    .inner_size(400., 600.)
-    .decorations(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .resizable(false)
-    .shadow(true)
-    .visible(false)
-    .focused(false)
-    .background_color(Color(13, 13, 13, 255))
-    .data_directory(profile)
-    // Do not let window.open create an untracked second ChatGPT/browser instance.
-    .on_new_window(|_, _| NewWindowResponse::Deny)
-    .build()?;
+    )?;
     let handle = app.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::CloseRequested { api, .. } => {
@@ -284,21 +333,30 @@ fn get_or_create_panel(app: &AppHandle) -> tauri::Result<WebviewWindow> {
                     .blur_should_hide(native_foreground(&w));
                 if should_hide {
                     let _ = hide(&handle, &w);
+                } else {
+                    sync_memory(&handle, &w);
                 }
             }
         }
-        WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+        WindowEvent::Focused(true) | WindowEvent::Resized(_) => {
+            if let Some(w) = handle.get_webview_window(PANEL_LABEL) {
+                capture_bounds(&handle, &w);
+                sync_memory(&handle, &w);
+            }
+        }
+        WindowEvent::Moved(_) => {
             if let Some(w) = handle.get_webview_window(PANEL_LABEL) {
                 capture_bounds(&handle, &w);
             }
         }
         WindowEvent::Destroyed => {
-            let pending = {
-                let controller = handle.state::<Controller>();
-                let mut state = controller.inner.lock().unwrap();
-                state.policy.releasing = false;
-                state.pending_show.take()
-            };
+            let pending = handle
+                .state::<Controller>()
+                .inner
+                .lock()
+                .unwrap()
+                .policy
+                .finish_release();
             // Tauri has removed its label; defer through the event queue so Wry's
             // native destruction callback also returns before constructing a new WebView.
             if let Some(mode) = pending {
@@ -314,13 +372,11 @@ fn open(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
     {
         let controller = app.state::<Controller>();
         let mut state = controller.inner.lock().unwrap();
-        if state.policy.releasing {
-            state.pending_show = Some(mode);
+        if !state.policy.request_open(mode) {
             return Ok(());
         }
     }
-    // Capture only a pre-existing window. A newly constructed WebView still has
-    // Quick's initial 400x600 bounds, even when reopening after freeing Full.
+    // Capture only existing geometry; construction uses the requested mode.
     if let Some(window) = app.get_webview_window(PANEL_LABEL) {
         let capture = app
             .state::<Controller>()
@@ -342,7 +398,8 @@ fn open(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
         (old, state.bounds)
     };
     sync_timer(app);
-    let window = match get_or_create_panel(app) {
+    let existing = app.get_webview_window(PANEL_LABEL).is_some();
+    let window = match get_or_create_panel(app, mode, bounds) {
         Ok(window) => window,
         Err(error) => {
             let controller = app.state::<Controller>();
@@ -352,13 +409,26 @@ fn open(app: &AppHandle, mode: Mode) -> tauri::Result<()> {
             return Err(error);
         }
     };
-    let result = native_mode(&window, mode, bounds).and_then(|_| {
-        window.show()?;
-        window.set_focus()
-    });
+    // Keep intermediate native styles/viewports invisible during a mode switch.
+    // This is not policy hide: it does not arm destructive timers.
+    let result = (|| {
+        if existing && old_mode != mode {
+            window.hide()?;
+        }
+        if (existing && window_mode::requires_reconfigure(old_mode, mode))
+            || (!existing && mode == Mode::Quick)
+        {
+            native_mode(&window, mode, bounds)?;
+        } else {
+            window.unminimize()?;
+        }
+        request_memory(app, &window, Target::Normal);
+        native_window::show(&window)
+    })();
     if result.is_err() {
         // Best-effort restore; never navigate/recreate to recover a style failure.
         let _ = native_mode(&window, old_mode, bounds);
+        let _ = native_window::show(&window);
     }
     {
         let controller = app.state::<Controller>();
@@ -385,6 +455,7 @@ fn release(app: &AppHandle) -> tauri::Result<()> {
         let mode = state.policy.mode;
         state.policy.show(mode); // Invalidate any old idle ticket.
         state.policy.releasing = true;
+        state.memory.new_page(); // Invalidate all callbacks for the discarded WebView.
     }
     save_bounds(app);
     sync_timer(app);
@@ -462,6 +533,12 @@ fn perform(app: &AppHandle, action: Action) -> tauri::Result<()> {
     }
 }
 
+fn default_shortcuts() -> [Shortcut; 2] {
+    [
+        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space),
+        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Enter),
+    ]
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -482,23 +559,52 @@ pub fn run() {
                 inner: Mutex::new(Inner {
                     policy: Lifecycle::default(),
                     bounds,
-                    pending_show: None,
+                    memory: Memory::default(),
                     timer: None,
                 }),
                 started: Instant::now(),
                 settings,
             });
-            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+            let [quick_shortcut, full_shortcut] = default_shortcuts();
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(move |app, hit, event| {
-                        if hit.id() == shortcut.id() && event.state() == ShortcutState::Pressed {
-                            queue(app, Action::QuickToggle);
+                        match shortcuts::action(
+                            hit.id(),
+                            event.state() == ShortcutState::Pressed,
+                            quick_shortcut.id(),
+                            full_shortcut.id(),
+                        ) {
+                            Some(shortcuts::Command::ToggleQuick) => {
+                                queue(app, Action::QuickToggle)
+                            }
+                            Some(shortcuts::Command::OpenFull) => {
+                                queue(app, Action::Open(Mode::Full))
+                            }
+                            None => {}
                         }
                     })
                     .build(),
             )?;
-            app.global_shortcut().register(shortcut)?;
+            let registrations = shortcuts::register_both(quick_shortcut, full_shortcut, |key| {
+                app.global_shortcut().register(key)
+            });
+            let quick_status = if registrations[0].is_ok() {
+                "Ctrl+Shift+Space: ready"
+            } else {
+                "Ctrl+Shift+Space unavailable — use tray"
+            };
+            let full_status = if registrations[1].is_ok() {
+                "Ctrl+Shift+Enter: ready"
+            } else {
+                "Ctrl+Shift+Enter unavailable — use tray"
+            };
+            let quick_status = MenuItemBuilder::new(quick_status)
+                .enabled(false)
+                .build(app)?;
+            let full_status = MenuItemBuilder::new(full_status)
+                .enabled(false)
+                .build(app)?;
 
             let toggle = MenuItemBuilder::with_id("toggle", "Toggle Quick Panel").build(app)?;
             let full = MenuItemBuilder::with_id("full", "Open Full Window").build(app)?;
@@ -523,6 +629,8 @@ pub fn run() {
             let menu = MenuBuilder::new(app)
                 .items(&[
                     &toggle,
+                    &quick_status,
+                    &full_status,
                     &full,
                     &quick,
                     &ram,
@@ -580,4 +688,18 @@ pub fn run() {
                 api.prevent_exit();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn default_shortcut_keys_and_modifiers_match_documented_commands() {
+        let [quick, full] = default_shortcuts();
+        assert_eq!(quick.key, Code::Space);
+        assert_eq!(full.key, Code::Enter);
+        assert_eq!(quick.mods, Modifiers::CONTROL | Modifiers::SHIFT);
+        assert_eq!(full.mods, Modifiers::CONTROL | Modifiers::SHIFT);
+        assert_ne!(quick.id(), full.id());
+    }
 }

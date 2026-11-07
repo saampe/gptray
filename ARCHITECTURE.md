@@ -1,4 +1,4 @@
-# GPTray 0.2 architecture and scoped security review
+# GPTray 0.3 architecture and scoped security review
 
 This describes implementation and source inspection. It does **not** assert that Windows GUI, account login or RAM consumption have been manually verified for 0.2.
 
@@ -6,15 +6,19 @@ This describes implementation and source inspection. It does **not** assert that
 
 All entry points serialize native actions on Tauri's UI thread. `get_or_create_panel` is the only WebView builder and uses label `panel`. Startup declares `app.windows: []`. Full and Quick share the existing WebView: `set_decorations`, `set_always_on_top`, `set_skip_taskbar`, `set_resizable`, `set_maximizable`, `set_minimizable`, size/position and maximize/minimize APIs change the native window. No URL reload, JS injection, DOM selectors or reading of conversations is used. These setters and Windows support were checked against locked Tauri **2.11.5** sources and type-checked for `x86_64-pc-windows-msvc`. Interactive behavior still needs Windows verification.
 
-Quick is borderless/topmost/taskbarless and hides on blur. Full has standard chrome and ignores blur. The shortcut always selects Quick (hiding it if already visible), so it also provides a way back from Full. Native close hides; Quit exits. Window-open popups are denied through `NewWindowResponse::Deny` to prevent untracked extra WebViews. This can limit OAuth popups, external links and other site features; validate login methods on Windows before relying on them. No browser popup workaround is claimed.
+The factory chooses mode size/chrome before creating the WebView; native controller bounds synchronize before show. Existing mode changes temporarily hide the parent to conceal intermediate viewports, with no policy-hide timer. Reopening Full avoids redundant unmaximize/resize.
+
+Quick is borderless/topmost/taskbarless and hides on blur. Full has standard chrome and ignores blur. The shortcut always selects Quick (hiding it if already visible), so it also provides a way back from Full. Ctrl+Shift+Enter opens/restores Full; registration is independent of Ctrl+Shift+Space. Conflicts leave the app running and are visible in disabled tray status rows. Native close hides; Quit exits. Window-open popups are denied through `NewWindowResponse::Deny` to prevent untracked extra WebViews. This can limit OAuth popups, external links and other site features; validate login methods on Windows before relying on them. No browser popup workaround is claimed.
 
 `geometry.rs` stores a versioned text record of physical top-left position, logical normal content size and maximized state. Bounds are cached during normal window events and written on hide, switch, RAM release and Quit, using a temporary sibling then rename. It never stores page contents or URLs. Corrupt/nonfinite/unbounded sizes fall back to defaults. Restore fits bounds to connected monitor work areas, reserving room for titlebar/borders. A crash or power loss can lose the most recent unsaved geometry. Extreme DPI/native event ordering needs manual testing.
+
+See [native memory/rendering evidence](docs/WEBVIEW2-MEMORY.md) for the verified Graphify baseline, API version matrix, typed COM access, Low/Normal policy and reasons for rejecting suspend/cache/JS interventions.
 
 ## Hide, destroy, exit
 
 | Operation | Live page | Persistent profile | Host/tray |
 |---|---|---|---|
-| Hide / native close | Retained, including drafts and ongoing work | Retained | Running |
+| Hide / native close | Retained; Low memory target, scripts/network continue | Retained | Running |
 | Mode switch | Reused, no intentional reload | Same | Running |
 | Free RAM | Destroyed; drafts/replies may be lost/stopped | Retained, not cleared | Running |
 | Quit | Closed with application | Retained | Exits |
@@ -25,18 +29,18 @@ For this opt-in only, inactivity means continuously **hidden** since the last su
 
 ## Profile and session
 
-The app identifier remains `com.globalvox.chatgpt-overlay-bar`. Tauri's locked Windows implementation defaults the WebView data directory to LocalData + identifier; 0.2 explicitly passes that same `app_local_data_dir()`. WebView2 normally stores browser profile files under its `EBWebView` subdirectory there. Neither normal hide, destroy nor Quit calls a clear-data/cookie API or changes profile location. No incognito/in-private mode or unsafe Chromium flags are used.
+The app identifier remains `com.globalvox.chatgpt-overlay-bar`. Tauri's locked Windows implementation defaults the WebView data directory to LocalData + identifier; 0.3 explicitly passes that same `app_local_data_dir()`. WebView2 normally stores browser profile files under its `EBWebView` subdirectory there. Neither normal hide, destroy nor Quit calls a clear-data/cookie API or changes profile location. No incognito/in-private mode or unsafe Chromium flags are used.
 
 Source inspection verifies path continuity and absence of explicit clearing. Retention of a real authenticated session still requires Windows testing without sharing credentials. Website expiry, account policy, logout, WebView2 behavior and provider restrictions can require a fresh login. Disk cookies do not preserve arbitrary unsent DOM state after destroy.
 
 ## Performance review
 
 - Lazy construction remains: no WebView before first use. No new background service, network client or telemetry.
-- One label and one builder; mode switches reuse it. Popup creation is denied. Window listeners are attached once per created window and disposed through Tauri destruction; no global frontend listeners are added.
-- Single opt-in timer worker; no timer is armed in the default configuration.
+- One label and one shared mode-aware factory; mode switches reuse it. Popup creation is denied. Window listeners are attached once per created window and disposed through Tauri destruction; no global frontend listeners are added.
+- Single opt-in destructive timer worker; no timer is armed in the default configuration. Non-destructive Low/Normal hints use native state changes, with no polling or extra worker.
 - Full-window geometry writes are tied to user lifecycle actions; resize/move events update memory only.
 - Destroy uses Tauri's native close path rather than process killing, working-set trimming or disabling browser sandbox/security. WebView2 may retain/reparent helper processes temporarily. No claim of leak-free behavior or measured savings is made; the repeated-cycle process-group procedure must establish it on Windows.
-- No dependencies added or updated. Only the root package version changes in Cargo.lock/package-lock.json. Existing transitive packages have not received a complete vulnerability audit.
+- Two Windows-only direct dependencies expose existing locked webview2-com/windows versions for typed native API access; no package version/checksum changed. Root metadata advances to 0.3.0. Existing transitive packages have not received a complete vulnerability audit.
 
 ## Security review of changed surfaces
 
@@ -44,7 +48,7 @@ Previously `csp: null` applied to bundled assets. The new restrictive local CSP 
 
 External HTTPS content is rendered by WebView2. GPTray does not read, export, log or forward conversation content, collect passwords, or introduce telemetry. Website/WebView2 network behavior remains controlled by their providers. Native navigation remains available for login redirects; this is not a domain-isolated browser. Popups are blocked, which trades compatibility for a bounded window lifecycle. Downloads and authentication must be tested according to website/WebView2 behavior. Local profile files contain sensitive session data and should be protected/backed up as browser data. The unsigned installer has no publisher identity assurance. A checksum checks downloaded bytes against the CI artifact, not publisher trust or full application safety.
 
-This is a targeted source/configuration review, **not a full security audit**. GitHub Actions uses hosted Windows 2022, read-only token permissions, checkout without stored credentials, locked installs and artifact retention seven days; no deployment, release publishing or auto-merge is configured.
+This is a targeted source/configuration review, **not a full security audit**. GitHub Actions uses hosted Windows 2022, read-only token permissions, checkout without stored credentials, locked installs and artifact retention fourteen days; no deployment, release publishing or auto-merge is configured.
 
 ## Feature availability
 
