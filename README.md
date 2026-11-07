@@ -34,7 +34,7 @@ Keep a copy of the previous 0.2 installer/hash before upgrading. The exact basel
 
 ## Verification
 
-See [Windows acceptance and RAM measurement](docs/WINDOWS-VALIDATION.md) and [architecture / security](ARCHITECTURE.md). CI verifies policy tests, Windows compilation/packaging and separately attempts a native API/viewport probe with isolated local content. Its actual outcome is recorded in a separate artifact. A build or that probe does **not** verify live ChatGPT login, drafts, rendering quality or measured RAM savings.
+See [dependency/security results](docs/SECURITY-REVIEW.md), [Windows acceptance and RAM measurement](docs/WINDOWS-VALIDATION.md) and [architecture / security](ARCHITECTURE.md). CI verifies policy tests, Windows compilation/packaging and separately attempts a native API/viewport probe with isolated local content. Its actual outcome is recorded in a separate artifact. A build or that probe does **not** verify live ChatGPT login, drafts, rendering quality or measured RAM savings.
 
 The earlier observations (~139.9 MB open, ~125 MB hidden) include WebView2 processes identified at the time, but are not validated process-group baselines. Measure both versions with the same script and conditions before comparing. The observed 450–470 MB activity peaks are also uncontrolled. Earlier README claims of 12–27 MB or other fixed memory costs are not acceptance evidence for this version.
 

@@ -49,6 +49,7 @@ jobs:
           ./policy-tests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/Test-MeasureMemory.ps1
+          ./scripts/Test-NativeHarness.ps1
 
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check

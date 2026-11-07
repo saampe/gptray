@@ -13,7 +13,7 @@ Development starts from merged main `6cf978e1efdb55d6195571c54fc8a6c437a52a1f`. 
 | webview2-com 0.38.2 | `_19`, Low/Normal constants, setters/getters; `_3` TrySuspend/Resume | QueryInterface checks installed runtime |
 | Windows 0.61.3 | typed COM `Interface::cast`, RECT | Same versions already in Cargo.lock |
 
-Two **Windows-only direct dependency declarations** expose already locked webview2-com and windows packages; no package version/checksum or transitive dependency changes. Typed QueryInterface is used, not handwritten COM layouts or speculative vtables. Missing `_19` is handled as unsupported for that WebView; normal operation continues. Transient errors leave future requests retryable. Native COM references are local to one UI callback and are not retained in state.
+Two **Windows-only direct dependency declarations** expose already locked webview2-com and windows packages. Separately, the RustSec review required a compatible plist/quick-xml security update and its base64 dependency; see [security results](SECURITY-REVIEW.md) for exact versions and retained warnings. Typed QueryInterface is used, not handwritten COM layouts or speculative vtables. Missing `_19` is handled as unsupported for that WebView; normal operation continues. Transient errors leave future requests retryable. Native COM references are local to one UI callback and are not retained in state.
 
 Official references reviewed:
 

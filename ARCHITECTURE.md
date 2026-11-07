@@ -40,7 +40,7 @@ Source inspection verifies path continuity and absence of explicit clearing. Ret
 - Single opt-in destructive timer worker; no timer is armed in the default configuration. Non-destructive Low/Normal hints use native state changes, with no polling or extra worker.
 - Full-window geometry writes are tied to user lifecycle actions; resize/move events update memory only.
 - Destroy uses Tauri's native close path rather than process killing, working-set trimming or disabling browser sandbox/security. WebView2 may retain/reparent helper processes temporarily. No claim of leak-free behavior or measured savings is made; the repeated-cycle process-group procedure must establish it on Windows.
-- Two Windows-only direct dependencies expose existing locked webview2-com/windows versions for typed native API access; no package version/checksum changed. Root metadata advances to 0.3.0. Existing transitive packages have not received a complete vulnerability audit.
+- Two Windows-only direct dependencies expose existing locked webview2-com/windows versions for typed native API access. A scoped security update also advances plist/quick-xml and adds the required base64 version. Root metadata advances to 0.3.0. npm/RustSec checks and retained informational warnings are recorded in [SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md); this is not a complete dependency audit.
 
 ## Security review of changed surfaces
 
