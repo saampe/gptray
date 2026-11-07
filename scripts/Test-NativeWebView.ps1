@@ -30,7 +30,7 @@ $probe.Dispose()
 [System.IO.File]::WriteAllText((Join-Path (Resolve-Path $OutputDirectory).Path 'native-smoke.stderr.txt'), $stderr)
 $passed = !$timedOut -and $exitCode -eq 0 -and $stdout -match 'NATIVE_SMOKE_PASS:'
 $result = [pscustomobject]@{ Passed = $passed; ExitCode = $exitCode; TimedOut = $timedOut;
-    Scope = 'Isolated local HTML/native WebView2 API and viewport; not ChatGPT account, rendering quality or RAM measurement';
+    Scope = 'Isolated about:blank/native WebView2 API and viewport; not ChatGPT account, rendering quality or RAM measurement';
     UTC = [datetime]::UtcNow.ToString('o') }
 $result | ConvertTo-Json | Set-Content (Join-Path $OutputDirectory 'native-smoke-result.json') -Encoding utf8
 Write-Output ($result | ConvertTo-Json -Compress)

@@ -4,7 +4,7 @@
 
 Automated policy tests cover mode-dependent blur decisions, safe defaults, deadlines and stale cancellation, repeated mode transitions, geometry serialization/validation, removed monitors and DPI fitting. Windows CI additionally runs the Rust application test suite, formats, compiles/packages with MSVC, tests PowerShell grouping fixtures and uploads an NSIS installer/hash. These are not interactive GUI tests.
 
-The development environment is Linux. A Windows Actions native probe is additionally attempted using local test HTML and a disposable profile; its result artifact is distinct from user-session verification. No interactive Windows 11 desktop or user credentials are available in development. Until completed on Windows, mark every item below **not manually verified**. Do not fill measurement cells from guesses or earlier README claims.
+The development environment is Linux. A Windows Actions native probe is additionally attempted using an isolated `about:blank` document and a disposable profile; its result artifact is distinct from user-session verification. No interactive Windows 11 desktop or user credentials are available in development. Until completed on Windows, mark every item below **not manually verified**. Do not fill measurement cells from guesses or earlier README claims.
 
 ## Acceptance checklist (Windows 11 reference: i3-8130U, 4 GB RAM, UHD 620)
 

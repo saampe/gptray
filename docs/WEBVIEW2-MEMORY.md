@@ -40,7 +40,7 @@ The shared factory now sets requested content size, decorations, taskbar/topmost
 
 ## Evidence boundaries
 
-Pure tests validate policy decisions/races and initial mode specs. Locked Windows-target compilation verifies typed API integration. The separate native smoke example uses **local disposable HTML and a unique temporary profile**, exercises the production factory and adapter, reads initial/resized controller bounds and Low/Normal targets, then shows/hides/exits. Its CI log/result explicitly records pass/fail. It is not a ChatGPT login, rendering-quality or account-state test, and never opens the personal profile. Actual Windows 11 ChatGPT drafts/streaming/layout, runtime-dependent savings and process cleanup need the matched benchmark/acceptance session.
+Pure tests validate policy decisions/races and initial mode specs. Locked Windows-target compilation verifies typed API integration. The separate native smoke example uses **an isolated `about:blank` document and a unique temporary profile**, exercises the production factory and adapter, reads initial/resized controller bounds and Low/Normal targets, then shows/hides/exits. Its CI log/result explicitly records pass/fail. It is not a ChatGPT login, rendering-quality or account-state test, and never opens the personal profile. Actual Windows 11 ChatGPT drafts/streaming/layout, runtime-dependent savings and process cleanup need the matched benchmark/acceptance session.
 
 The user's ~450–470 MB during activity, and older ~139.9/125 MB figures, are uncontrolled observations with incompletely specified process grouping/metrics. They are not verified comparison baselines. No numerical RAM improvement is promised or fabricated.
 

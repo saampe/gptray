@@ -1,4 +1,4 @@
-//! Automated native API/viewport probe with isolated local content. Not a
+//! Automated native API/viewport probe with isolated a local blank document. Not a
 //! ChatGPT login, rendering-quality, or RAM benchmark; never uses the user profile.
 #[allow(dead_code)]
 #[path = "../src/geometry.rs"]
@@ -36,7 +36,7 @@ fn main() {
         println!("Native smoke WebView2 Runtime: {version}");
         let window = native_window::build(app.handle(), lifecycle::Mode::Full,
             geometry::Bounds { width: 980., height: 640., ..geometry::Bounds::default() }, profile_for_setup,
-            WebviewUrl::External(Url::parse("data:text/html,<html><body>GPTray native smoke: local content only</body></html>")?))?;
+            WebviewUrl::External(Url::parse("about:blank")?))?;
         let expected = window.inner_size()?;
         let controller_window = window.clone();
         let handle = app.handle().clone();
