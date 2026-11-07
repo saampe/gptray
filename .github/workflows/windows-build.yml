@@ -66,6 +66,9 @@ jobs:
       - name: Build native WebView2 probe
         run: cargo build --locked --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --example native_smoke
 
+      - name: Inspect native Windows imports
+        run: ./scripts/Inspect-NativeImports.ps1
+
       - name: Exercise native memory targets and viewport
         run: ./scripts/Test-NativeWebView.ps1
 
@@ -78,6 +81,7 @@ jobs:
             native-smoke-result.json
             native-smoke.stdout.txt
             native-smoke.stderr.txt
+            native-imports.txt
           if-no-files-found: warn
           retention-days: 14
 
