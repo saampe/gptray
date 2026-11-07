@@ -23,3 +23,8 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Task scratch and measurement output
+work/
+memory-results/
+policy-tests.exe
