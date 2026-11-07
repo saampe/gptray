@@ -80,10 +80,10 @@ fn main() {
             let handle = app.handle().clone();
             let (cancel, wait) = std::sync::mpsc::channel();
             let watchdog = std::thread::spawn(move || {
-                if wait
-                    .recv_timeout(std::time::Duration::from_secs(30))
-                    .is_err()
-                {
+                if matches!(
+                    wait.recv_timeout(std::time::Duration::from_secs(30)),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                ) {
                     eprintln!("NATIVE_SMOKE_FAIL: watchdog");
                     handle.exit(2);
                 }
