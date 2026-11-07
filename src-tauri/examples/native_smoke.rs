@@ -37,42 +37,46 @@ fn main() {
         let window = native_window::build(app.handle(), lifecycle::Mode::Full,
             geometry::Bounds { width: 980., height: 640., ..geometry::Bounds::default() }, profile_for_setup,
             WebviewUrl::External(Url::parse("about:blank")?))?;
+        if !window.is_decorated()? || !window.is_resizable()? {
+            return Err(std::io::Error::other("Initial Full native chrome/resizability missing").into());
+        }
         let expected = window.inner_size()?;
-        let controller_window = window.clone();
-        let handle = app.handle().clone();
-        window.with_webview(move |view| {
-            let result = (|| -> Result<(), String> {
-                let mut bounds = windows::Win32::Foundation::RECT::default();
-                // SAFETY: owning UI thread, live controller, valid output pointer.
-                unsafe { view.controller().Bounds(&mut bounds) }.map_err(|e| e.to_string())?;
-                if (bounds.right - bounds.left, bounds.bottom - bounds.top) != (expected.width as i32, expected.height as i32) {
-                    return Err(format!("Initial Full viewport mismatch: {bounds:?} vs {expected:?}"));
-                }
-                if !controller_window.is_decorated().map_err(|e| e.to_string())? || !controller_window.is_resizable().map_err(|e| e.to_string())? {
-                    return Err("Initial Full native chrome/resizability missing".into());
-                }
-                for target in [Target::Normal, Target::Low, Target::Normal] {
-                    match webview_memory::apply(&view, target) {
-                        Outcome::Applied => println!("Native memory target accepted/read back: {target:?}"),
-                        other => return Err(format!("Memory target failed: {other:?}")),
-                    }
-                }
-                controller_window.set_size(tauri::LogicalSize::new(850., 620.)).map_err(|e| e.to_string())?;
-                let resized = controller_window.inner_size().map_err(|e| e.to_string())?;
-                native_window::sync_viewport(&view, resized).map_err(|e| e.to_string())?;
-                // SAFETY: same valid controller/output contract as above.
-                unsafe { view.controller().Bounds(&mut bounds) }.map_err(|e| e.to_string())?;
-                if (bounds.right, bounds.bottom) != (resized.width as i32, resized.height as i32) { return Err("Synchronous resized viewport mismatch".into()); }
-                // Exercise the shared show path; this does not assert a rendered ChatGPT frame.
-                native_window::show(&controller_window).map_err(|e| e.to_string())?;
-                controller_window.hide().map_err(|e| e.to_string())?;
-                Ok(())
-            })();
-            match result {
-                Ok(()) => { println!("NATIVE_SMOKE_PASS: initial Full viewport, chrome, Low/Normal readback, resized viewport, show/hide"); handle.exit(0); }
-                Err(error) => { eprintln!("NATIVE_SMOKE_FAIL: {error}"); handle.exit(1); }
+        native_window::with_ui_webview(&window, move |view| {
+            let mut bounds = windows::Win32::Foundation::RECT::default();
+            // SAFETY: owning UI thread, live controller, valid stack output.
+            unsafe { view.controller().Bounds(&mut bounds) }.map_err(|e| std::io::Error::other(e.to_string()))?;
+            if (bounds.right - bounds.left, bounds.bottom - bounds.top) != (expected.width as i32, expected.height as i32) {
+                return Err(std::io::Error::other(format!("Initial Full viewport mismatch: {bounds:?} vs {expected:?}")).into());
             }
+            for target in [Target::Normal, Target::Low, Target::Normal] {
+                match webview_memory::apply(&view, target) {
+                    Outcome::Applied => println!("Native memory target accepted/read back: {target:?}"),
+                    other => return Err(std::io::Error::other(format!("Memory target failed: {other:?}")).into()),
+                }
+            }
+            Ok(())
         })?;
+        println!("Native initial Full viewport and chrome verified");
+        // Native window operations run after with_webview releases its mutex.
+        window.set_size(tauri::LogicalSize::new(850., 620.))?;
+        let resized = window.inner_size()?;
+        native_window::with_ui_webview(&window, move |view| {
+            native_window::sync_viewport(&view, resized).map_err(|e| std::io::Error::other(e.to_string()))?;
+            let mut bounds = windows::Win32::Foundation::RECT::default();
+            // SAFETY: same valid controller/output contract as above.
+            unsafe { view.controller().Bounds(&mut bounds) }.map_err(|e| std::io::Error::other(e.to_string()))?;
+            if (bounds.right, bounds.bottom) != (resized.width as i32, resized.height as i32) {
+                return Err(std::io::Error::other("Synchronous resized viewport mismatch").into());
+            }
+            Ok(())
+        })?;
+        println!("Native resized viewport verified");
+        native_window::show(&window)?;
+        if !window.is_visible()? { return Err(std::io::Error::other("Show did not make window visible").into()); }
+        window.hide()?;
+        if window.is_visible()? { return Err(std::io::Error::other("Hide did not hide window").into()); }
+        println!("NATIVE_SMOKE_PASS: initial Full viewport, chrome, Low/Normal readback, resized viewport, show/hide");
+        app.handle().exit(0);
         Ok(())
     }).build(tauri::generate_context!());
     let exit_code = match result {

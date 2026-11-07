@@ -46,3 +46,6 @@ The user's ~450–470 MB during activity, and older ~139.9/125 MB figures, are u
 
 
 The first native CI attempts failed at Windows loader status `0xC0000139`. MSVC import inspection identified `comctl32.dll!TaskDialogIndirect`. Locked tauri-winres/embed-resource emits the Common Controls v6 manifest resource for **binaries**, not Cargo **examples**. The probe's build now links that same already generated `resource.lib` into examples; the shipping app already receives it. This is a test executable packaging correction, not a disabled security feature or a speculative COM workaround. Only the final successful probe result counts as execution evidence.
+
+
+The native regression also exposed nested dispatcher deadlock: the locked runtime holds its WebView-id mutex during `with_webview`, so calling another `with_webview` (or indirectly dispatching reentrant events) inside that callback can hang. Production show and the probe now keep callbacks **COM-only**, return through a nonblocking result channel on the verified owning UI thread, then perform native show/focus/resize operations outside the callback. Off-thread/deferred use fails explicitly rather than blocking the UI. The same actual smoke regression checks this path through show/hide, not just successful compilation.

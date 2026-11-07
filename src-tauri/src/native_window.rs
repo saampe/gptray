@@ -81,26 +81,34 @@ pub fn sync_viewport(
     unsafe { view.controller().SetBounds(rect) }
 }
 
+/// This locked Tauri runtime invokes with_webview inline on the owning UI
+/// thread while holding the webview-id mutex. Keep the callback COM-only; never
+/// re-enter a Tauri dispatcher from it. Fail rather than block if called off UI.
+#[cfg(windows)]
+pub fn with_ui_webview<T: Send + 'static>(
+    window: &WebviewWindow,
+    callback: impl FnOnce(tauri::webview::PlatformWebview) -> tauri::Result<T> + Send + 'static,
+) -> tauri::Result<T> {
+    let (send, receive) = std::sync::mpsc::channel();
+    window.with_webview(move |view| {
+        let _ = send.send(callback(view));
+    })?;
+    receive
+        .try_recv()
+        .map_err(|_| std::io::Error::other("native viewport requires the owning UI thread"))?
+}
+
 pub fn show(window: &WebviewWindow) -> tauri::Result<()> {
     #[cfg(windows)]
     {
-        let window_clone = window.clone();
-        // Showing inside the callback orders viewport synchronization before
-        // visibility even if Tauri dispatches with_webview asynchronously.
-        window.with_webview(move |view| {
-            if let Ok(size) = window_clone.inner_size() {
-                if let Err(e) = sync_viewport(&view, size) {
-                    eprintln!("GPTray viewport sync failed: {}", e.code());
-                }
-            }
-            if let Err(e) = window_clone.show().and_then(|_| window_clone.set_focus()) {
-                eprintln!("GPTray show failed: {e}");
-            }
-        })
+        let size = window.inner_size()?;
+        with_ui_webview(window, move |view| {
+            sync_viewport(&view, size).map_err(|e| std::io::Error::other(e.to_string()))?;
+            Ok(())
+        })?;
     }
-    #[cfg(not(windows))]
-    {
-        window.show()?;
-        window.set_focus()
-    }
+    // The COM callback has returned and released the runtime mutex before any
+    // show/focus events can call into Tauri or the app's memory-event handler.
+    window.show()?;
+    window.set_focus()
 }
